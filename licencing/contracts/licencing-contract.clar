@@ -1,5 +1,5 @@
-;; GastronomyIP - Intermediate platform for culinary creation registration and licensing
-;; Version 2.0 - Added licensing and reputation systems
+;; GastronomyIP - A distributed platform for culinary innovation registration and monetization
+;; Version 3.0 - Complete implementation with all features
 
 ;; System exception codes
 (define-constant AUTH-FAILURE-ERR (err u301))
@@ -27,6 +27,7 @@
     component-quantity: uint,
     creator-fee-percentage: uint,
     learning-duration: uint,
+    complexity-level: uint,
     completion-block: (optional uint),
     source-document: (string-ascii 30),
     taste-category: (string-ascii 20),
@@ -40,17 +41,20 @@
 
 (define-map artist-portfolio-tracker
   principal
-  (list 7 uint)
+  (list 10 uint)
 )
 
 ;; Primary operational functions
 (define-public (publish-creation (component-quantity uint) (creator-fee-percentage uint) (learning-duration uint) 
-                               (source-document (string-ascii 30)) (taste-category (string-ascii 20)))
+                               (complexity-level uint) (source-document (string-ascii 30)) 
+                               (taste-category (string-ascii 20)))
   (let ((creation-id (+ (var-get catalog-counter) u1)))
     ;; Input parameter validation
     (asserts! (> component-quantity u0) COMPONENT-BOUNDARY-ERR)
     (asserts! (<= creator-fee-percentage u50) FEE-STRUCTURE-ERR)
     (asserts! (and (> learning-duration u0) (<= learning-duration u10000)) PRACTICE-LENGTH-ERR)
+    (asserts! (and (>= complexity-level u1) (<= complexity-level u5)) COMPLEXITY-RANGE-ERR)
+    ;; Content validation
     (asserts! (> (len source-document) u0) REFERENCE-MISSING-ERR)
     (asserts! (> (len taste-category) u0) PROFILE-EMPTY-ERR)
     
@@ -63,6 +67,7 @@
         component-quantity: component-quantity,
         creator-fee-percentage: creator-fee-percentage,
         learning-duration: learning-duration,
+        complexity-level: complexity-level,
         completion-block: none,
         source-document: source-document,
         taste-category: taste-category,
@@ -74,9 +79,9 @@
     (let 
       (
         (current-portfolio (default-to (list) (map-get? artist-portfolio-tracker tx-sender)))
-        (updated-portfolio (unwrap-panic (as-max-len? (concat (list creation-id) current-portfolio) u7)))
+        (updated-portfolio (unwrap-panic (as-max-len? (concat (list creation-id) current-portfolio) u10)))
       )
-      ;; Maintain most recent 7 creations in this version
+      ;; Maintain most recent 10 creations
       (map-set artist-portfolio-tracker tx-sender updated-portfolio)
     )
     
@@ -120,7 +125,8 @@
     (student-resources (default-to u0 (map-get? resource-inventory tx-sender)))
     (base-cost (get component-quantity creation-data))
     (royalty-amount (/ (* (get component-quantity creation-data) (get creator-fee-percentage creation-data)) u100))
-    (certification-fee (+ base-cost royalty-amount))
+    (complexity-bonus (/ (* base-cost (get complexity-level creation-data)) u100))
+    (certification-fee (+ base-cost royalty-amount complexity-bonus))
   )
     ;; Validate operation conditions
     (asserts! (<= creation-id (var-get catalog-counter)) INVALID-CREATION-ID-ERR)
@@ -199,6 +205,13 @@
 
 (define-read-only (view-portfolio (entity principal))
   (default-to (list) (map-get? artist-portfolio-tracker entity))
+)
+
+;; Complexity calculation helper
+(define-read-only (determine-difficulty-multiplier (complexity-level uint))
+  (if (and (>= complexity-level u1) (<= complexity-level u5))
+      (* complexity-level u1)
+      u0)  ;; Default for invalid input
 )
 
 ;; System state initialization
